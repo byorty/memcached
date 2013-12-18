@@ -1475,6 +1475,42 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     item_remove(it);         /* release our reference */
 }
 
+static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    token_t *key_token = &tokens[KEY_TOKEN];
+    char **keys = NULL;
+
+    assert(c != NULL);
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if(nkey > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    if (nkey == 0) {
+        keys = assoc_keys(NULL);
+    } else {
+        keys = assoc_keys(key);
+    }
+
+    add_iov(c, "KEYS\n", 6);
+    for (int i = 0;i < assoc_keys_length();++i) {
+        add_iov(c, keys[i], strlen(keys[i]));
+        add_iov(c, "\n", 2);
+    }
+    add_iov(c, "END\n", 5);
+
+    conn_set_state(c, conn_mwrite);
+    c->msgcurr = 0;
+    return;
+}
+
 /*
  * adds a delta value to a numeric item.
  *
@@ -1607,6 +1643,131 @@ char *do_defer_delete(item *it, time_t exptime)
     todelete[delcurr++] = it;
 
     return "DELETED";
+}
+
+static void process_deletes_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    item *it;
+    time_t exptime = 0;
+    token_t *key_token = &tokens[KEY_TOKEN];
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    do {
+        while(key_token->length != 0) {
+
+            key = key_token->value;
+            nkey = key_token->length;
+
+            if(errno == ERANGE) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+
+            if (settings.detail_enabled) {
+                stats_prefix_record_delete(key);
+            }
+
+            it = item_get(key, nkey);
+            add_iov(c, key, strlen(key));
+            add_iov(c, "\n", 2);
+            if (it) {
+                MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), exptime);
+                if (exptime == 0) {
+                    item_unlink(it);
+                    item_remove(it);
+                } else {
+                    /* our reference will be transfered to the delete queue */
+                    out_string(c, defer_delete(it, exptime));
+                }
+                add_iov(c, "DELETED", 7);
+                add_iov(c, "\n", 2);
+            } else {
+                add_iov(c, "NOT_FOUND", 9);
+                add_iov(c, "\n", 2);
+            }
+
+            key_token++;
+        }
+
+    } while(key_token->value != NULL);
+
+    conn_set_state(c, conn_mwrite);
+    c->msgcurr = 0;
+}
+
+static void process_delete_by_pattern_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    item *it;
+    time_t exptime = 0;
+    char **keys = NULL;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    if(nkey > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    if(ntokens == (c->noreply ? 5 : 4)) {
+        exptime = strtol(tokens[2].value, NULL, 10);
+
+        if(errno == ERANGE) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_delete(key);
+    }
+
+    if (nkey == 0) {
+        out_string(c, "CLIENT_ERROR bad pattern");
+        return;
+    }
+
+    keys = assoc_keys(key);
+
+    char *item_key;
+    size_t nitem_key;
+
+    for (int i = 0;i < assoc_keys_length();++i) {
+
+        item_key = keys[i];
+        nitem_key = strlen(item_key);
+
+        it = item_get(item_key, nitem_key);
+        add_iov(c, item_key, nitem_key);
+        add_iov(c, "\n", 2);
+        if (it) {
+            MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), exptime);
+            if (exptime == 0) {
+                item_unlink(it);
+                item_remove(it);
+            } else {
+                /* our reference will be transfered to the delete queue */
+                out_string(c, defer_delete(it, exptime));
+            }
+            add_iov(c, "DELETED", 7);
+            add_iov(c, "\n", 2);
+        } else {
+            add_iov(c, "NOT_FOUND", 9);
+            add_iov(c, "\n", 2);
+        }
+    }
+
+    conn_set_state(c, conn_mwrite);
+    c->msgcurr = 0;
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -1764,9 +1925,25 @@ static void process_command(conn *c, char *command) {
         out_string(c, "CLIENT_ERROR Slab reassignment not supported");
 #endif
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
+
         process_verbosity_command(c, tokens, ntokens);
+
+    }  else if ((strcmp(tokens[COMMAND_TOKEN].value, "keys") == 0)) {
+
+        process_keys_command(c, tokens, ntokens);
+
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "deletes") == 0)) {
+
+        process_deletes_command(c, tokens, ntokens);
+
+    } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete_by_pattern") == 0)) {
+
+        process_delete_by_pattern_command(c, tokens, ntokens);
+
     } else {
+
         out_string(c, "ERROR");
+
     }
     return;
 }

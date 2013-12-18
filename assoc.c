@@ -25,6 +25,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
+#include <pcre.h>
 
 /*
  * Since the hash function does bit manipulation, it needs to know
@@ -445,6 +447,8 @@ uint32_t hash( const void *key, size_t length, const uint32_t initval)
 #error Must define HASH_BIG_ENDIAN or HASH_LITTLE_ENDIAN
 #endif /* HASH_XXX_ENDIAN == 1 */
 
+#define OVECCOUNT 30
+
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
@@ -474,6 +478,8 @@ static bool expanding = false;
  * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
  */
 static unsigned int expand_bucket = 0;
+
+static struct items_keys keys;
 
 void assoc_init(void) {
     primary_hashtable = calloc(hashsize(hashpower), sizeof(void *));
@@ -621,4 +627,97 @@ void assoc_delete(const char *key, const size_t nkey) {
     /* Note:  we never actually get here.  the callers don't delete things
        they can't find. */
     assert(*before != 0);
+}
+
+char **assoc_keys(const char *pattern) {
+
+    item **items;
+    int pattern_len = NULL == pattern ? 0 : strlen(pattern);
+    pcre *re = NULL;
+    const char *error;
+    int erroffset;
+    int ovector[OVECCOUNT];
+    int rc;
+
+    if (0 != keys.length) {
+        keys_reset();
+    }
+
+    if (expanding) {
+        items = old_hashtable;
+    } else {
+        items = primary_hashtable;
+    }
+
+    if (NULL != pattern && 0 < pattern_len) {
+        re = pcre_compile(
+                pattern,
+                0,
+                &error,
+                &erroffset,
+                NULL
+        );
+        if (settings.verbose > 1) {
+            fprintf(stderr, "PCRE error: %s\n", error);
+        }
+    }
+
+    for (int i = 0;i < hashsize(hashpower);++i) {
+        if (NULL != items[i]) {
+            item *it = items[i];
+            while (it) {
+                char *key = ITEM_key(it);
+                if (NULL == pattern && 0 == pattern_len) {
+                    keys_push(&keys, key);
+                } else if (re) {
+                    rc = pcre_exec(
+                            re,
+                            NULL,
+                            key,
+                            strlen(key),
+                            0,
+                            0,
+                            ovector,
+                            OVECCOUNT
+                    );
+                    if (-1 < rc) {
+                        keys_push(&keys, key);
+                    }
+                }
+                it = it->h_next;
+            }
+        }
+    }
+    if (NULL != re) pcre_free(re);
+    return keys.array;
+}
+
+int assoc_keys_length(void) {
+    return keys.length;
+}
+
+void keys_init(void) {
+    keys.array = malloc(1024 * sizeof(char *));
+    keys.length = 0;
+    keys.capacity = 0;
+}
+
+void keys_reset(void) {
+    free(keys.array);
+    keys_init();
+}
+
+void keys_push(struct items_keys *keys, char *value) {
+    if (keys->length == keys->capacity) {
+        int new_capacity = (0 == keys->capacity ? 1 : keys->capacity) * 4;
+        if (new_capacity > keys->capacity && new_capacity < SIZE_T_MAX / sizeof(int)) {
+            keys->array = realloc(keys->array, sizeof(char *) * new_capacity);
+            if (keys->array != NULL) {
+                keys->capacity = new_capacity;
+            }
+        }
+    }
+
+    keys->array[keys->length] = value;
+    keys->length++;
 }
