@@ -110,7 +110,7 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
 ])
   fi
 ])
-LIBS="$LIBS -levent -lpcre"
+LIBS="$LIBS -levent"
 if test $ac_cv_libevent_dir != "(system)"; then
   if test -d "$ac_cv_libevent_dir/lib" ; then
     LDFLAGS="-L$ac_cv_libevent_dir/lib $LDFLAGS"
@@ -123,6 +123,99 @@ if test $ac_cv_libevent_dir != "(system)"; then
     CPPFLAGS="-I$ac_cv_libevent_dir/include $CPPFLAGS"
   else
     CPPFLAGS="-I$ac_cv_libevent_dir $CPPFLAGS"
+  fi
+fi
+
+dnl ----------------------------------------------------------------------------
+
+trylibpcredir=""
+AC_ARG_WITH(libpcre,
+       [  --with-libpcre=PATH     Specify path to libpcre installation ],
+       [
+                if test "x$withval" != "xno" ; then
+                        trylibpcredir=$withval
+                fi
+       ]
+)
+
+dnl ------------------------------------------------------
+dnl libpcre detection.  swiped from Tor.  modified a bit.
+
+LIBPCRE_URL=http://www.monkey.org/~provos/libevent/
+
+AC_CACHE_CHECK([for libpcre directory], ac_cv_libpcre_dir, [
+  saved_LIBS="$LIBS"
+  saved_LDFLAGS="$LDFLAGS"
+  saved_CPPFLAGS="$CPPFLAGS"
+  le_found=no
+  for ledir in $trylibpcredir "" $prefix /usr/local ; do
+    LDFLAGS="$saved_LDFLAGS"
+    LIBS="$saved_LIBS -lpcre"
+
+    # Skip the directory if it isn't there.
+    if test ! -z "$ledir" -a ! -d "$ledir" ; then
+       continue;
+    fi
+    if test ! -z "$ledir" ; then
+      if test -d "$ledir/lib" ; then
+        LDFLAGS="-L$ledir/lib $LDFLAGS"
+      else
+        LDFLAGS="-L$ledir $LDFLAGS"
+      fi
+      if test -d "$ledir/include" ; then
+        CPPFLAGS="-I$ledir/include $CPPFLAGS"
+      else
+        CPPFLAGS="-I$ledir $CPPFLAGS"
+      fi
+    fi
+    # Can I compile and link it?
+    AC_TRY_LINK([
+        #include <stdio.h>
+        #include <string.h>
+        #include <pcre.h>
+    ], [
+        pcre *re = NULL;
+        const char *error;
+        int erroffset;
+        re = pcre_compile("/\w/", 0, &error, &erroffset, NULL);
+        if (NULL == re) {
+            return EXIT_FAILURE;
+        }
+    ],
+    [ libpcre_linked=yes ], [ libpcre_linked=no ])
+    if test $libpcre_linked = yes; then
+       if test ! -z "$ledir" ; then
+         ac_cv_libpcre_dir=$ledir
+       else
+         ac_cv_libpcre_dir="(system)"
+       fi
+       le_found=yes
+       break
+    fi
+  done
+  LIBS="$saved_LIBS"
+  LDFLAGS="$saved_LDFLAGS"
+  CPPFLAGS="$saved_CPPFLAGS"
+  if test $le_found = no ; then
+    AC_MSG_ERROR([libpcre is required.  You can get it from $LIBPCRE_URL
+
+      If it's already installed, specify its path using --with-libpcre=/dir/
+])
+  fi
+])
+LIBS="$LIBS -lpcre"
+if test $ac_cv_libpcre_dir != "(system)"; then
+  if test -d "$ac_cv_libpcre_dir/lib" ; then
+    LDFLAGS="-L$ac_cv_libpcre_dir/lib $LDFLAGS"
+    le_libdir="$ac_cv_libpcre_dir/lib"
+  else
+    LDFLAGS="-L$ac_cv_libpcre_dir $LDFLAGS"
+    le_libdir="$ac_cv_libpcre_dir"
+  fi
+  if test -d "$ac_cv_libpcre_dir/include" ; then
+    CPPFLAGS="-I$ac_cv_libpcre_dir/include $CPPFLAGS"
+  else
+    CPPFLAGS="-I$ac_cv_libpcre_dir $CPPFLAGS"
   fi
 fi
 

@@ -23,3 +23,7 @@ echo "autoconf..."
 AUTOCONF=${AUTOCONF:-autoconf}
 $AUTOCONF || exit 1
 
+autoconf
+./configure
+make
+
