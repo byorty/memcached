@@ -87,6 +87,8 @@ static int transmit(conn *c);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
+static int int_length(int i);
+static char *int_to_string(int i);
 
 /* time handling */
 static void set_current_time(void);  /* update the global variable holding
@@ -939,7 +941,7 @@ typedef struct token_s {
 #define KEY_TOKEN 1
 #define KEY_MAX_LENGTH 250
 
-#define MAX_TOKENS 8
+#define MAX_TOKENS 250
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -1499,12 +1501,10 @@ static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens)
         keys = assoc_keys(key);
     }
 
-    add_iov(c, "KEYS\n", 6);
     for (int i = 0;i < assoc_keys_length();++i) {
         add_iov(c, keys[i], strlen(keys[i]));
         add_iov(c, "\n", 2);
     }
-    add_iov(c, "END\n", 5);
 
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
@@ -1651,6 +1651,7 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
     item *it;
     time_t exptime = 0;
     token_t *key_token = &tokens[KEY_TOKEN];
+    int ndeleted = 0;
 
     assert(c != NULL);
 
@@ -1664,7 +1665,7 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
 
             if(errno == ERANGE) {
                 out_string(c, "CLIENT_ERROR bad command line format");
-                return;
+                break;
             }
 
             if (settings.detail_enabled) {
@@ -1672,8 +1673,6 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
             }
 
             it = item_get(key, nkey);
-            add_iov(c, key, strlen(key));
-            add_iov(c, "\n", 2);
             if (it) {
                 MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), exptime);
                 if (exptime == 0) {
@@ -1683,18 +1682,16 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
                     /* our reference will be transfered to the delete queue */
                     out_string(c, defer_delete(it, exptime));
                 }
-                add_iov(c, "DELETED", 7);
-                add_iov(c, "\n", 2);
-            } else {
-                add_iov(c, "NOT_FOUND", 9);
-                add_iov(c, "\n", 2);
+                ++ndeleted;
             }
 
             key_token++;
         }
-
     } while(key_token->value != NULL);
 
+    const char *out = int_to_string(ndeleted);
+    add_iov(c, out, strlen(out));
+    add_iov(c, "\n", 2);
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
 }
@@ -1705,6 +1702,7 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     item *it;
     time_t exptime = 0;
     char **keys = NULL;
+    int ndeleted = 0;
 
     assert(c != NULL);
 
@@ -1747,8 +1745,6 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
         nitem_key = strlen(item_key);
 
         it = item_get(item_key, nitem_key);
-        add_iov(c, item_key, nitem_key);
-        add_iov(c, "\n", 2);
         if (it) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), exptime);
             if (exptime == 0) {
@@ -1758,14 +1754,13 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
                 /* our reference will be transfered to the delete queue */
                 out_string(c, defer_delete(it, exptime));
             }
-            add_iov(c, "DELETED", 7);
-            add_iov(c, "\n", 2);
-        } else {
-            add_iov(c, "NOT_FOUND", 9);
-            add_iov(c, "\n", 2);
+            ++ndeleted;
         }
     }
 
+    const char *out = int_to_string(ndeleted);
+    add_iov(c, out, strlen(out));
+    add_iov(c, "\n", 2);
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
 }
@@ -2775,6 +2770,22 @@ void do_run_deferred_deletes(void)
         }
     }
     delcurr = j;
+}
+
+static int int_length(int i) {
+    int length = 0;
+    while (i) {
+        i /= 10;
+        ++length;
+    }
+    return length;
+}
+
+static char *int_to_string(int i) {
+    int i_len = int_length(i);
+    char str[i_len];
+    sprintf(str, "%d", i);
+    return str;
 }
 
 static void usage(void) {
