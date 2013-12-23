@@ -638,6 +638,7 @@ char **assoc_keys(const char *pattern) {
     int erroffset;
     int ovector[OVECCOUNT];
     int rc;
+    int i;
 
     if (0 != keys.length) {
         keys_reset();
@@ -662,7 +663,7 @@ char **assoc_keys(const char *pattern) {
         }
     }
 
-    for (int i = 0;i < hashsize(hashpower);++i) {
+    for (i = 0;i < hashsize(hashpower);++i) {
         if (NULL != items[i]) {
             item *it = items[i];
             while (it) {
