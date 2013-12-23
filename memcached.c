@@ -1482,6 +1482,7 @@ static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens)
     size_t nkey;
     token_t *key_token = &tokens[KEY_TOKEN];
     char **keys = NULL;
+    int i;
 
     assert(c != NULL);
 
@@ -1501,7 +1502,7 @@ static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens)
         keys = assoc_keys(key);
     }
 
-    for (int i = 0;i < assoc_keys_length();++i) {
+    for (i = 0;i < assoc_keys_length();++i) {
         add_iov(c, keys[i], strlen(keys[i]));
         add_iov(c, "\n", 2);
     }
@@ -1690,8 +1691,11 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
     } while(key_token->value != NULL);
 
     const char *out = int_to_string(ndeleted);
-    add_iov(c, out, strlen(out));
-    add_iov(c, "\n", 2);
+    if (out) {
+        add_iov(c, out, strlen(out));
+        add_iov(c, "\n", 2);
+        free(out);
+    }
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
 }
@@ -1703,6 +1707,7 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     time_t exptime = 0;
     char **keys = NULL;
     int ndeleted = 0;
+    int i;
 
     assert(c != NULL);
 
@@ -1739,7 +1744,7 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     char *item_key;
     size_t nitem_key;
 
-    for (int i = 0;i < assoc_keys_length();++i) {
+    for (i = 0;i < assoc_keys_length();++i) {
 
         item_key = keys[i];
         nitem_key = strlen(item_key);
@@ -1759,8 +1764,11 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     }
 
     const char *out = int_to_string(ndeleted);
-    add_iov(c, out, strlen(out));
-    add_iov(c, "\n", 2);
+    if (out) {
+        add_iov(c, out, strlen(out));
+        add_iov(c, "\n", 2);
+        free(out);
+    }
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
 }
@@ -2782,8 +2790,7 @@ static int int_length(int i) {
 }
 
 static char *int_to_string(int i) {
-    int i_len = int_length(i);
-    char str[i_len];
+    char *str = malloc(int_length(i));
     sprintf(str, "%d", i);
     return str;
 }

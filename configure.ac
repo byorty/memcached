@@ -141,7 +141,7 @@ AC_ARG_WITH(libpcre,
 dnl ------------------------------------------------------
 dnl libpcre detection.  swiped from Tor.  modified a bit.
 
-LIBPCRE_URL=http://www.monkey.org/~provos/libevent/
+LIBPCRE_URL=http://www.pcre.org/
 
 AC_CACHE_CHECK([for libpcre directory], ac_cv_libpcre_dir, [
   saved_LIBS="$LIBS"
