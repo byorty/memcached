@@ -479,8 +479,6 @@ static bool expanding = false;
  */
 static unsigned int expand_bucket = 0;
 
-static struct items_keys keys;
-
 void assoc_init(void) {
     primary_hashtable = calloc(hashsize(hashpower), sizeof(void *));
     if (! primary_hashtable) {
@@ -629,7 +627,7 @@ void assoc_delete(const char *key, const size_t nkey) {
     assert(*before != 0);
 }
 
-char **assoc_keys(const char *pattern) {
+struct items_keys assoc_keys(const char *pattern) {
 
     item **items;
     int pattern_len = NULL == pattern ? 0 : strlen(pattern);
@@ -639,10 +637,9 @@ char **assoc_keys(const char *pattern) {
     int ovector[OVECCOUNT];
     int rc;
     int i;
+    static struct items_keys keys;
 
-    if (0 != keys.length) {
-        keys_reset();
-    }
+    keys_init(&keys);
 
     if (expanding) {
         items = old_hashtable;
@@ -690,32 +687,29 @@ char **assoc_keys(const char *pattern) {
         }
     }
     if (NULL != re) pcre_free(re);
-    return keys.array;
+    return keys;
 }
 
-int assoc_keys_length(void) {
-    return keys.length;
+int assoc_keys_length(struct items_keys *keys) {
+    return keys->length;
 }
 
-void keys_init(void) {
-    keys.array = malloc(1024 * sizeof(char *));
-    keys.length = 0;
-    keys.capacity = 0;
+void keys_init(struct items_keys *keys) {
+    keys->array = malloc(1024 * sizeof(char *));
+    keys->length = 0;
+    keys->capacity = 1024;
 }
 
-void keys_reset(void) {
-    free(keys.array);
-    keys_init();
+void keys_reset(struct items_keys *keys) {
+    free(keys);
 }
 
 void keys_push(struct items_keys *keys, char *value) {
     if (keys->length == keys->capacity) {
         int new_capacity = (0 == keys->capacity ? 1 : keys->capacity) * 4;
-        if (new_capacity > keys->capacity && new_capacity < SIZE_T_MAX / sizeof(int)) {
-            keys->array = realloc(keys->array, sizeof(char *) * new_capacity);
-            if (keys->array != NULL) {
-                keys->capacity = new_capacity;
-            }
+        keys->array = realloc(keys->array, sizeof(char *) * new_capacity);
+        if (keys->array != NULL) {
+            keys->capacity = new_capacity;
         }
     }
 

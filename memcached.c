@@ -1480,8 +1480,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    token_t *key_token = &tokens[KEY_TOKEN];
-    char **keys = NULL;
+    struct items_keys keys;
     int i;
 
     assert(c != NULL);
@@ -1502,13 +1501,14 @@ static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens)
         keys = assoc_keys(key);
     }
 
-    for (i = 0;i < assoc_keys_length();++i) {
-        add_iov(c, keys[i], strlen(keys[i]));
-        add_iov(c, "\n", 2);
+    for (i = 0;i < keys.length;++i) {
+        add_iov(c, keys.array[i], strlen(keys.array[i]));
+        add_iov(c, "\n", 1);
     }
 
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
+    keys_reset(&keys);
     return;
 }
 
@@ -1693,7 +1693,7 @@ static void process_deletes_command(conn *c, token_t *tokens, const size_t ntoke
     const char *out = int_to_string(ndeleted);
     if (out) {
         add_iov(c, out, strlen(out));
-        add_iov(c, "\n", 2);
+        add_iov(c, "\n", 1);
         free(out);
     }
     conn_set_state(c, conn_mwrite);
@@ -1705,7 +1705,7 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     size_t nkey;
     item *it;
     time_t exptime = 0;
-    char **keys = NULL;
+    struct items_keys keys;
     int ndeleted = 0;
     int i;
 
@@ -1744,9 +1744,9 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     char *item_key;
     size_t nitem_key;
 
-    for (i = 0;i < assoc_keys_length();++i) {
+    for (i = 0;i < keys.length;++i) {
 
-        item_key = keys[i];
+        item_key = keys.array[i];
         nitem_key = strlen(item_key);
 
         it = item_get(item_key, nitem_key);
@@ -1766,11 +1766,12 @@ static void process_delete_by_pattern_command(conn *c, token_t *tokens, const si
     const char *out = int_to_string(ndeleted);
     if (out) {
         add_iov(c, out, strlen(out));
-        add_iov(c, "\n", 2);
+        add_iov(c, "\n", 1);
         free(out);
     }
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
+    keys_reset(&keys);
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
