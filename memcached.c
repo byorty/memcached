@@ -1505,6 +1505,7 @@ static void process_keys_command(conn *c, token_t *tokens, const size_t ntokens)
         add_iov(c, keys.array[i], strlen(keys.array[i]));
         add_iov(c, "\n", 1);
     }
+    add_iov(c, "\n", 1);
 
     conn_set_state(c, conn_mwrite);
     c->msgcurr = 0;
